@@ -245,6 +245,16 @@ class Game:
                         return True, position
         return False, None
 
+    def check_remove_sequence(self):
+        neighbors = Graph.nodes_neighbors[self.fox]
+        for elem in neighbors:
+            if elem in self.geese:
+                value, dest = self.check_valid_fox(self.fox, elem)
+                if value:
+                    return True
+        return False
+
+
     def check_endgame(self):
         if len(self.geese) <= 3:
             return True, "Fox"
@@ -267,15 +277,16 @@ class Game:
             if neighbor in self.geese:
                 value, position = self.check_valid_fox(self.fox, neighbor)
                 if value:
-                    if position != neighbor:
-                        new_config = Game(self.board, copy.deepcopy(self.geese), self.fox)
-                        new_config.geese.remove(neighbor)
-                        new_config.fox = position
-                        moves.append(new_config)
-                    else:
-                        new_config = Game(self.board, copy.deepcopy(self.geese), self.fox)
-                        new_config.fox = position
-                        moves.append(new_config)
+                    new_config = Game(self.board, copy.deepcopy(self.geese), self.fox)
+                    new_config.geese.remove(neighbor)
+                    new_config.fox = position
+                    moves.append(new_config)
+            else:
+                value, position = self.check_valid_fox(self.fox, neighbor)
+                if value:
+                    new_config = Game(self.board, copy.deepcopy(self.geese), self.fox)
+                    new_config.fox = position
+                    moves.append(new_config)
 
         return moves
 
@@ -288,10 +299,8 @@ class Game:
                     value = self.check_valid_geese(goose, neighbor)
                     if value:
                         new_config = Game(self.board, copy.deepcopy(self.geese), self.fox)
-                        # new_config = copy.deepcopy(self)
                         new_config.geese.remove(goose)
                         new_config.geese.append(neighbor)
-                       # new_config.geese = sorted(new_config.geese)
                         if new_config not in moves:
                             moves.append(new_config)
         return moves
@@ -359,8 +368,9 @@ class State:
     def possible_moves(self):
         if self.current_player == "fox":
             l_moves = self.game.generate_moves_fox()
+            if self.game.fox in l_moves:
+                l_moves.remove(self.game.fox)
             l_states = [State(move, "geese", self.depth - 1, parent=self) for move in l_moves]
-
             return l_states
         else:
             l_moves = self.game.generate_moves_geese()
@@ -386,21 +396,19 @@ def min_max(state):
 
     state.next_moves = state.possible_moves()
     if len(state.next_moves) == 0:
-        # print(state)
         return state
-    print(state.next_moves)
 
     moves_with_scores = [min_max(move) for move in state.next_moves]
 
     if len(moves_with_scores) == 0:
         return state
 
-    if state.current_player == Game.P_MAX:
+    if state.current_player == "fox":
         state.next_state = max(moves_with_scores, key=lambda x: x.score)
     else:
         state.next_state = min(moves_with_scores, key=lambda x: x.score)
     state.score = state.next_state.score
-    print("aici")
+
     return state
 
 
@@ -414,6 +422,10 @@ def alpha_beta(alpha, beta, state):
         return state
 
     state.next_moves = state.possible_moves()
+
+    if len(state.next_moves) == 0:
+        # print(state)
+        return state
 
     if state.current_player == Game.P_MAX:
         current_score = float('-inf')
@@ -441,6 +453,10 @@ def alpha_beta(alpha, beta, state):
                 beta = new_state.score
                 if alpha >= beta:
                     break
+
+    if state.next_state is None:
+        return state
+
     state.score = state.next_state.score
 
     return state
@@ -547,7 +563,6 @@ def draw_options():
         buttons_list=[
             Button(display=display, w=120, h=30, text="Player", value=1),
             Button(display=display, w=120, h=30, text="Fox AI", value=2),
-            Button(display=display, w=120, h=30, text="Geese AI", value=3)
         ],
         selected_index=0)
 
@@ -557,7 +572,6 @@ def draw_options():
         left=330,
         buttons_list=[
             Button(display=display, w=120, h=30, text="Player", value=1),
-            Button(display=display, w=120, h=30, text="Fox AI", value=2),
             Button(display=display, w=120, h=30, text="Geese AI", value=3)
         ],
         selected_index=0)
@@ -605,7 +619,7 @@ def draw_options():
                                     display.fill((0, 0, 0))
                                     pygame.display.update()
                                     # must draw initial state
-                                    return  gamemode_button.get_value(), player_button.get_value(), alg_button.get_value(), \
+                                    return gamemode_button.get_value(), player_button.get_value(), alg_button.get_value(), \
                                             difficulty_button.get_value()
         pygame.display.update()
 
@@ -629,6 +643,7 @@ def player_vs_ai(algorithm, difficulty):
     coords = [[Graph.translation + Graph.scale * x for x in nod] for nod in Graph.nodes]
 
     moved = True
+    ok = False
     win = ""
     while moved:
         if current_state.current_player == "fox":
@@ -646,7 +661,13 @@ def player_vs_ai(algorithm, difficulty):
                                 if index in current_state.game.geese:
                                     current_state.game.geese.remove(index)
                                 current_state.game.fox = dest
-                                current_state.current_player = "geese"
+
+                                if dest != index:
+                                    ok = current_state.game.check_remove_sequence()
+
+                                if not ok:
+                                    current_state.current_player = "geese"
+
                                 current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox, current_state.current_player)
                                 value, winner = current_state.game.check_endgame()
                                 if value:
@@ -693,6 +714,35 @@ def player_vs_ai(algorithm, difficulty):
             print("The pc \"thought\" about " + str(final_t - start_t) + " milliseconds.")
 
             current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox, current_state.current_player)
+
+            value, winner = current_state.game.check_endgame()
+            if value:
+                if winner == "Fox":
+                    win = "fox"
+                    turn_font = pygame.font.SysFont('Lobster', 100)
+                    geese_turn_text = turn_font.render('Fox Won!', True, (0, 0, 0))
+                    geese_turn_rect = geese_turn_text.get_rect()
+                    geese_turn_rect.center = (500, 425)
+                    display.blit(geese_turn_text, geese_turn_rect)
+                    current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox,
+                                                             current_state.current_player)
+                    pygame.display.update()
+                    moved = False
+                    # break
+                else:
+                    win = "geese"
+                    turn_font = pygame.font.SysFont('Lobster', 100)
+                    geese_turn_text = turn_font.render('Goose Won!', True, (0, 0, 0))
+                    geese_turn_rect = geese_turn_text.get_rect()
+                    geese_turn_rect.center = (500, 425)
+                    display.blit(geese_turn_text, geese_turn_rect)
+                    current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox,
+                                                             current_state.current_player)
+                    pygame.display.update()
+                    moved = False
+                    # break
+            else:
+                continue
 
         if not moved:
             if win == "fox":
@@ -755,6 +805,7 @@ def player_vs_player():
 
     moved = True
     win = ""
+    ok = False
     while moved:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
@@ -771,7 +822,11 @@ def player_vs_player():
                                 if index in game.geese:
                                     game.geese.remove(index)
                                 game.fox = dest
-                                player = False
+                                if dest != index:
+                                    ok = game.check_remove_sequence()
+
+                                if not ok:
+                                    player = False
                                 game.board.draw_game_board(game.geese, game.fox, player)
                                 value, winner = game.check_endgame()
                                 if value:
@@ -878,30 +933,168 @@ def player_vs_player():
             sys.exit()
 
 
+def ai_vs_player(algorithm, difficulty):
+    pygame.init()
+    pygame.display.set_caption("Fox and Geese - Broscoteanu Daria Mihaela")
+    display = pygame.display.set_mode(size=(1000, 850))
+
+    background_color = (88, 199, 89)
+    lines_color = (0, 0, 0)
+    board = Board(display, background_color, lines_color)
+    game = Game(board)
+    game.P_MAX = "fox"
+    game.P_MIN = "geese"
+    current_state = State(game, 'fox', difficulty)
+
+    current_state.game.board.draw_game_board(game.geese, game.fox, True)
+    pygame.display.update()
+
+    coords = [[Graph.translation + Graph.scale * x for x in nod] for nod in Graph.nodes]
+
+    selected = False
+    index_goose = None
+
+    moved = True
+    ok = False
+    win = ""
+    while moved:
+        if current_state.current_player == "geese":
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if ev.type == pygame.MOUSEBUTTONDOWN:
+                    pos = pygame.mouse.get_pos()
+                    for nod in coords:
+                        if euclidean_distance(pos, nod) <= Graph.point_radius:
+                            index = get_node_from_pixels(nod)
+                            if not selected:
+                                if index in current_state.game.geese:
+                                    selected = True
+                                    index_goose = index
+                                    current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox, current_state.current_player, selected, index_goose)
+                                    break
+                            else:
+                                if current_state.game.check_valid_geese(index_goose, index):
+                                    current_state.game.geese.remove(index_goose)
+                                    current_state.game.geese.append(index)
+                                    selected = False
+                                    index_goose = None
+                                    current_state.current_player = "fox"
+                                    current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox, current_state.current_player, selected, index_goose)
+                                    value, winner = current_state.game.check_endgame()
+                                    if value:
+                                        if winner == "Fox":
+                                            win = "fox"
+                                            moved = False
+                                            break
+                                        else:
+                                            win = "geese"
+                                            moved = False
+                                            break
+                                    break
+                                else:
+                                    selected = False
+                                    index_goose = None
+                                    player = True
+                                    current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox, current_state.current_player, selected, index_goose)
+                                    break
+
+                        current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox, current_state.current_player)
+        else:
+            start_t = (time.time() * 1000)
+            if algorithm == 'minimax':
+                new_state = min_max(current_state)
+            else:
+                new_state = alpha_beta(-500, 500, current_state)
+            current_state.game = new_state.next_state.game
+            current_state.current_player = "geese"
+            final_t = int(round(time.time() * 1000))
+            print("The pc \"thought\" about " + str(final_t - start_t) + " milliseconds.")
+
+            current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox,
+                                                     current_state.current_player)
+
+            value, winner = current_state.game.check_endgame()
+            if value:
+                if winner == "Fox":
+                    win = "fox"
+                    turn_font = pygame.font.SysFont('Lobster', 100)
+                    geese_turn_text = turn_font.render('Fox Won!', True, (0, 0, 0))
+                    geese_turn_rect = geese_turn_text.get_rect()
+                    geese_turn_rect.center = (500, 425)
+                    display.blit(geese_turn_text, geese_turn_rect)
+                    current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox,
+                                                             current_state.current_player)
+                    pygame.display.update()
+                    moved = False
+                    # break
+                else:
+                    win = "geese"
+                    turn_font = pygame.font.SysFont('Lobster', 100)
+                    geese_turn_text = turn_font.render('Goose Won!', True, (0, 0, 0))
+                    geese_turn_rect = geese_turn_text.get_rect()
+                    geese_turn_rect.center = (500, 425)
+                    display.blit(geese_turn_text, geese_turn_rect)
+                    current_state.game.board.draw_game_board(current_state.game.geese, current_state.game.fox,
+                                                             current_state.current_player)
+                    pygame.display.update()
+                    moved = False
+                    # break
+            else:
+                continue
+
+        if not moved:
+            if win == "fox":
+                turn_font = pygame.font.SysFont('Lobster', 100)
+                geese_turn_text = turn_font.render('Fox Won!', True, (255, 255, 255))
+                geese_turn_rect = geese_turn_text.get_rect()
+                geese_turn_rect.center = (500, 425)
+                start_time = time.time()
+                while time.time() - start_time < 8:
+                    display.fill(background_color)
+                    display.blit(geese_turn_text, geese_turn_rect)
+                    pygame.display.update()
+                    for ev in pygame.event.get():
+                        if ev.type == pygame.QUIT:
+                            pygame.quit()
+                            sys.exit()
+                pygame.quit()
+                sys.exit()
+                # draw_game_board(display, background_color, lines_color, geese, fox, True)
+            elif win == "geese":
+                turn_font = pygame.font.SysFont('Lobster', 100)
+                geese_turn_text = turn_font.render('Goose Won!', True, (255, 255, 255))
+                geese_turn_rect = geese_turn_text.get_rect()
+                geese_turn_rect.center = (500, 425)
+                start_time = time.time()
+                while time.time() - start_time < 8:
+                    display.fill(background_color)
+                    display.blit(geese_turn_text, geese_turn_rect)
+                    pygame.display.update()
+                    for ev in pygame.event.get():
+                        if ev.type == pygame.QUIT:
+                            pygame.quit()
+                            sys.exit()
+                pygame.quit()
+                sys.exit()
+
+
+def ai_vs_ai(algorithm, difficulty):
+    pass
+
+
 def run_game():
     player1, player2, algorithm, difficulty = draw_options()
     if player1 == 1 and player2 == 1:
         player_vs_player()
     elif player1 == 1 and player2 == 3:
         player_vs_ai(algorithm, difficulty)
+    elif player1 == 2 and player2 == 1:
+        ai_vs_player(algorithm, difficulty)
+    else:
+        print("Not Implemented")
 
-run_game()
-# player_vs_player()
-# pygame.init()
-# pygame.display.set_caption("Fox and Geese - Broscoteanu Daria Mihaela")
-# display = pygame.display.set_mode(size=(1000, 850))
-#
-# background_color = (88, 199, 89)
-# lines_color = (0, 0, 0)
-# board = Board(display, background_color, lines_color)
-# game = Game(board)
-# game.P_MAX = "fox"
-# game.P_MIN = "geese"
-# board = Board(display, background_color, lines_color)
-# game = Game(board, [6, 14, 22, 23, 24])
-#
-# current_state = State(game, 'fox', 1)
-# print(game.geese)
-# moves = game.generate_moves_geese()
-# for move in moves:
-#     print(move.geese)
+
+if __name__ == "__main__":
+    run_game()
